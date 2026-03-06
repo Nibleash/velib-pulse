@@ -7,7 +7,6 @@ from supabase import create_client
 STATION_STATUS_URL = "https://velib-metropole-opendata.smovengo.cloud/opendata/Velib_Metropole/station_status.json"
 STATION_INFO_URL   = "https://velib-metropole-opendata.smovengo.cloud/opendata/Velib_Metropole/station_information.json"
 
-print(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
 
