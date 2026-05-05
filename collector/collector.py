@@ -1,11 +1,21 @@
-"""Velib-Pulse collector — fetch GBFS every 15min and store in Supabase."""
+"""Velib-Pulse collector v2 — agrégation incrémentale (quota borné).
+
+Changement clé par rapport à v1 :
+  - Plus de table station_snapshots (illimitée).
+  - On UPSERT directement les sommes dans aggregated_availability via RPC.
+  - Le stockage est borné à ~1 M lignes quelles que soient la durée de collecte.
+"""
 import os
-import requests
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+import requests
 from supabase import create_client
 
 STATION_STATUS_URL = "https://velib-metropole-opendata.smovengo.cloud/opendata/Velib_Metropole/station_status.json"
 STATION_INFO_URL   = "https://velib-metropole-opendata.smovengo.cloud/opendata/Velib_Metropole/station_information.json"
+
+PARIS_TZ = ZoneInfo("Europe/Paris")
 
 supabase = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
@@ -28,24 +38,28 @@ def upsert_station_info(stations: list[dict]) -> None:
     supabase.table("station_information").upsert(rows).execute()
 
 
-def insert_snapshots(stations: list[dict], captured_at: datetime) -> None:
+def upsert_aggregated(statuses: list[dict], captured_at: datetime) -> None:
+    """Incrémente les sommes dans aggregated_availability (pas de purge nécessaire)."""
+    paris_time = captured_at.astimezone(PARIS_TZ)
+    dow      = paris_time.isoweekday()                                     # 1=Lun…7=Dim
+    slot_min = paris_time.hour * 60 + (paris_time.minute // 15) * 15      # 0…1425
+
     rows = [
         {
-            "station_id":        s["station_id"],
-            "captured_at":       captured_at.isoformat(),
-            "mechanical":        next((t["mechanical"] for t in s["num_bikes_available_types"] if "mechanical" in t), 0),
-            "ebike":             next((t["ebike"]      for t in s["num_bikes_available_types"] if "ebike"      in t), 0),
-            "docks_available":   s["num_docks_available"],
+            "station_id": s["station_id"],
+            "dow":        dow,
+            "slot_min":   slot_min,
+            "meca":       next((t["mechanical"] for t in s["num_bikes_available_types"] if "mechanical" in t), 0),
+            "ebike":      next((t["ebike"]      for t in s["num_bikes_available_types"] if "ebike"      in t), 0),
+            "docks":      s["num_docks_available"],
         }
-        for s in stations
+        for s in statuses
         if s.get("is_installed") and s.get("is_renting")
     ]
-    supabase.table("station_snapshots").insert(rows).execute()
 
-
-def purge_old_snapshots() -> None:
-    """Keep only 3 rolling weeks."""
-    supabase.rpc("purge_old_snapshots").execute()
+    # Envoi en batch via la fonction RPC définie dans schema_v2.sql
+    import json
+    supabase.rpc("upsert_aggregated_availability", {"snapshots": json.dumps(rows)}).execute()
 
 
 def run() -> None:
@@ -54,9 +68,8 @@ def run() -> None:
     infos    = fetch(STATION_INFO_URL)
 
     upsert_station_info(infos)
-    insert_snapshots(statuses, now)
-    purge_old_snapshots()
-    print(f"[{now.isoformat()}] ✓ {len(statuses)} stations collected")
+    upsert_aggregated(statuses, now)
+    print(f"[{now.isoformat()}] ✓ {len(statuses)} stations — agrégation incrémentale")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vélib' Pulse — Heatmap</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚲</text></svg>" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────────── */
+    :root {
+      --bg:      #f8fafc;
+      --panel:   rgba(255, 255, 255, 0.96);
+      --border:  rgba(0, 0, 0, 0.10);
+      --accent:  #16a34a;
+      --accent2: #dc2626;
+      --green:   #16a34a;
+      --text:    #0f172a;
+      --muted:   #64748b;
+      --radius:  14px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+                 background: var(--bg); color: var(--text); overflow: hidden; }
+    a { color: var(--accent); }
+
+    /* ── Map ───────────────────────────────────────────────────────────── */
+    #map { position: absolute; inset: 0; z-index: 1; }
+
+    /* ── Panel ─────────────────────────────────────────────────────────── */
+    #panel {
+      position: absolute; top: 16px; left: 16px; z-index: 1000;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; width: 292px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+    }
+
+    .brand { margin-bottom: 18px; }
+    .brand-title {
+      font-size: 19px; font-weight: 800; letter-spacing: -.3px;
+      background: linear-gradient(100deg, #16a34a 30%, #0284c7);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .brand-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    .section { margin-bottom: 16px; }
+    .section-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--muted); margin-bottom: 8px;
+    }
+
+    /* Day buttons */
+    .day-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .day-btn {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 7px; padding: 7px 0;
+      font-size: 11px; font-weight: 600; cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s;
+      text-align: center; line-height: 1;
+    }
+    .day-btn:hover  { background: rgba(34,211,238,.1); color: var(--accent); border-color: rgba(34,211,238,.4); }
+    .day-btn.active { background: rgba(34,211,238,.18); color: var(--accent); border-color: var(--accent); }
+
+    /* Time control */
+    .time-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .time-value { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+    .time-arrows { display: flex; gap: 5px; }
+    .arr-btn {
+      background: rgba(255,255,255,0.07); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; width: 26px; height: 26px;
+      cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center;
+      transition: background .1s;
+    }
+    .arr-btn:hover { background: rgba(255,255,255,0.15); }
+
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 4px; border-radius: 2px; cursor: pointer;
+      background: linear-gradient(to right, var(--accent) calc(var(--pct, 33%) * 1%), rgba(0,0,0,.10) 0);
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--accent);
+      border: 2px solid #fff; box-shadow: 0 0 6px rgba(22,163,74,.4);
+    }
+
+    /* Metric buttons */
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .metric-btn {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 9px; padding: 9px 4px 7px;
+      font-size: 11px; font-weight: 600; cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s;
+      text-align: center; line-height: 1.5;
+    }
+    .metric-btn .ico { font-size: 17px; display: block; margin-bottom: 3px; }
+    .metric-btn:hover  { background: rgba(167,139,250,.1); color: var(--accent2); border-color: rgba(167,139,250,.4); }
+    .metric-btn.active { background: rgba(167,139,250,.18); color: var(--accent2); border-color: var(--accent2); }
+
+    /* Stats */
+    #stats {
+      background: rgba(22,163,74,0.05); border: 1px solid var(--border);
+      border-radius: 9px; padding: 11px 14px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .stat-item { text-align: center; }
+    .stat-val  { font-size: 20px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .stat-lbl  { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    /* Legend */
+    #legend {
+      position: absolute; bottom: 30px; right: 16px; z-index: 1000;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 14px; min-width: 170px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 4px 16px rgba(0,0,0,.1);
+    }
+    .legend-title { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: .1em; color: var(--muted); margin-bottom: 6px; }
+    .legend-bar {
+      width: 100%; height: 8px; border-radius: 4px;
+      background: linear-gradient(to right, #dc2626, #f97316, #eab308, #4ade80, #16a34a);
+      margin-bottom: 4px;
+    }
+    .legend-labels { display: flex; justify-content: space-between;
+                     font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .legend-unit { font-size: 10px; color: var(--muted); margin-top: 4px; text-align: center; }
+
+    /* Animate button */
+    #btn-animate {
+      width: 100%; margin-top: 14px; padding: 9px;
+      background: rgba(22,163,74,.08); border: 1px solid rgba(22,163,74,.3);
+      color: var(--accent); border-radius: 8px; font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: background .12s;
+    }
+    #btn-animate:hover    { background: rgba(22,163,74,.16); }
+    #btn-animate.playing  { background: rgba(220,38,38,.08); border-color: rgba(220,38,38,.3); color: #dc2626; }
+
+    /* Loading overlay */
+    #loading {
+      position: absolute; inset: 0; z-index: 9999;
+      background: #f8fafc; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 18px;
+    }
+    .loading-emoji { font-size: 42px; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(22,163,74,.15);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: var(--muted); }
+
+    /* Leaflet overrides */
+    .leaflet-control-attribution { background: rgba(255,255,255,.8) !important; color: #888 !important; font-size: 10px !important; }
+    .leaflet-control-attribution a { color: #555 !important; }
+    .leaflet-control-zoom a { background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important; }
+    .leaflet-control-zoom a:hover { background: rgba(22,163,74,.1) !important; }
+  </style>
+</head>
+<body>
+
+<!-- ── Loading ──────────────────────────────────────────────────────────── -->
+<div id="loading">
+  <div class="loading-emoji">🚲</div>
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Chargement des données…</div>
+</div>
+
+<!-- ── Map ──────────────────────────────────────────────────────────────── -->
+<div id="map"></div>
+
+<!-- ── Control panel ────────────────────────────────────────────────────── -->
+<div id="panel">
+
+  <div class="brand">
+    <div class="brand-title">🚲 Vélib' Pulse</div>
+    <div class="brand-sub">Disponibilité moyenne · Paris & banlieue</div>
+  </div>
+
+  <!-- Day of week -->
+  <div class="section">
+    <div class="section-label">Jour de la semaine</div>
+    <div class="day-grid">
+      <button class="day-btn active" data-dow="1">Lun</button>
+      <button class="day-btn"        data-dow="2">Mar</button>
+      <button class="day-btn"        data-dow="3">Mer</button>
+      <button class="day-btn"        data-dow="4">Jeu</button>
+      <button class="day-btn"        data-dow="5">Ven</button>
+      <button class="day-btn"        data-dow="6">Sam</button>
+      <button class="day-btn"        data-dow="7">Dim</button>
+    </div>
+  </div>
+
+  <!-- Time -->
+  <div class="section">
+    <div class="section-label">Heure</div>
+    <div class="time-row">
+      <span class="time-value" id="time-display">08:00</span>
+      <div class="time-arrows">
+        <button class="arr-btn" id="time-prev" title="Créneau précédent (←)">◀</button>
+        <button class="arr-btn" id="time-next" title="Créneau suivant (→)">▶</button>
+      </div>
+    </div>
+    <input type="range" id="time-slider" min="0" max="95" value="32" />
+  </div>
+
+  <!-- Metric -->
+  <div class="section">
+    <div class="section-label">Afficher</div>
+    <div class="metric-grid">
+      <button class="metric-btn active" data-metric="0"><span class="ico">🚲</span>Méca.</button>
+      <button class="metric-btn"        data-metric="1"><span class="ico">⚡</span>Élec.</button>
+      <button class="metric-btn"        data-metric="2"><span class="ico">🅿️</span>Places</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats">
+    <div class="stat-item">
+      <div class="stat-val" id="stat-total">—</div>
+      <div class="stat-lbl" id="stat-total-lbl">Total disponible</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-val" id="stat-stations">—</div>
+      <div class="stat-lbl">Stations actives</div>
+    </div>
+  </div>
+
+  <!-- Animate button -->
+  <button id="btn-animate">▶ Animer la journée</button>
+
+</div>
+
+<!-- ── Legend ────────────────────────────────────────────────────────────── -->
+<div id="legend">
+  <div class="legend-title">Intensité</div>
+  <div class="legend-bar"></div>
+  <div class="legend-labels">
+    <span>0</span>
+    <span id="legend-max">—</span>
+  </div>
+  <div class="legend-unit" id="legend-unit">vélos mécaniques</div>
+</div>
+
+<!-- ── Scripts ───────────────────────────────────────────────────────────── -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+/* ── Constants ─────────────────────────────────────────────────────────── */
+const SLOTS       = Array.from({ length: 96 }, (_, i) => i * 15); // 0..1425
+const METRIC_UNIT = ['vélos mécaniques', 'vélos électriques', 'places libres'];
+// Gradient : faible valeur = rouge, forte valeur = vert vif
+const HEAT_GRADIENT = { 0.0: '#dc2626', 0.25: '#f97316', 0.5: '#eab308', 0.75: '#4ade80', 1.0: '#16a34a' };
+
+/* ── State ─────────────────────────────────────────────────────────────── */
+let appData      = null;
+let heatLayer    = null;
+let currentDow   = 1;
+let currentSlot  = 32;   // index dans SLOTS → 32 × 15 = 480 min = 08:00
+let currentMetric = 0;
+let animTimer    = null;
+
+/* ── Map (CartoDB Dark tiles) ──────────────────────────────────────────── */
+const map = L.map('map', { center: [48.858, 2.347], zoom: 13 });
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 19,
+}).addTo(map);
+
+/* ── Helpers ───────────────────────────────────────────────────────────── */
+function slotToTime(slotMin) {
+  const h = String(Math.floor(slotMin / 60)).padStart(2, '0');
+  const m = String(slotMin % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function setSlider(idx) {
+  const slider = document.getElementById('time-slider');
+  const pct = (idx / 95) * 100;
+  slider.value = idx;
+  slider.style.setProperty('--pct', pct + '%');
+  document.getElementById('time-display').textContent = slotToTime(SLOTS[idx]);
+}
+
+/* ── Heatmap rendering ─────────────────────────────────────────────────── */
+function updateHeatmap() {
+  if (!appData) return;
+
+  const key      = `${currentDow}_${SLOTS[currentSlot]}`;
+  const slotData = appData.data[key];
+
+  if (!slotData) {
+    heatLayer && heatLayer.setLatLngs([]);
+    document.getElementById('stat-total').textContent    = '—';
+    document.getElementById('stat-stations').textContent = '—';
+    document.getElementById('legend-max').textContent    = '—';
+    return;
+  }
+
+  const points = [];
+  let total = 0, active = 0, maxVal = 0;
+
+  appData.stations.forEach((s, i) => {
+    const d = slotData[i];
+    if (d === null) return;
+    const val = d[currentMetric];
+    if (val > maxVal) maxVal = val;
+    if (val > 0) {
+      points.push([s[0], s[1], val]);
+      total += val;
+      active++;
+    }
+  });
+
+    const opts = { radius: 28, blur: 22, maxZoom: 17, max: maxVal || 1, minOpacity: 0.5, gradient: HEAT_GRADIENT };  if (!heatLayer) {
+    heatLayer = L.heatLayer(points, opts).addTo(map);
+  } else {
+    heatLayer.setLatLngs(points);
+    heatLayer.setOptions(opts);
+  }
+
+  document.getElementById('stat-total').textContent    = total.toLocaleString('fr-FR');
+  document.getElementById('stat-stations').textContent = active.toLocaleString('fr-FR');
+  document.getElementById('stat-total-lbl').textContent = METRIC_UNIT[currentMetric] + ' tot.';
+  document.getElementById('legend-max').textContent    = maxVal;
+  document.getElementById('legend-unit').textContent   = METRIC_UNIT[currentMetric];
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+// Day buttons
+document.querySelectorAll('.day-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.day-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentDow = parseInt(btn.dataset.dow);
+    updateHeatmap();
+  });
+});
+
+// Time slider
+const timeSlider = document.getElementById('time-slider');
+timeSlider.addEventListener('input', () => {
+  currentSlot = parseInt(timeSlider.value);
+  setSlider(currentSlot);
+  updateHeatmap();
+});
+
+document.getElementById('time-prev').addEventListener('click', () => {
+  if (currentSlot > 0) { currentSlot--; setSlider(currentSlot); updateHeatmap(); }
+});
+document.getElementById('time-next').addEventListener('click', () => {
+  if (currentSlot < 95) { currentSlot++; setSlider(currentSlot); updateHeatmap(); }
+});
+
+// Keyboard navigation
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft'  && currentSlot > 0)  { currentSlot--; setSlider(currentSlot); updateHeatmap(); }
+  if (e.key === 'ArrowRight' && currentSlot < 95) { currentSlot++; setSlider(currentSlot); updateHeatmap(); }
+});
+
+// Metric buttons
+document.querySelectorAll('.metric-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.metric-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMetric = parseInt(btn.dataset.metric);
+    updateHeatmap();
+  });
+});
+
+// Animate button
+const btnAnimate = document.getElementById('btn-animate');
+btnAnimate.addEventListener('click', () => {
+  if (animTimer) {
+    clearInterval(animTimer);
+    animTimer = null;
+    btnAnimate.textContent = '▶ Animer la journée';
+    btnAnimate.classList.remove('playing');
+  } else {
+    btnAnimate.textContent = '⏹ Arrêter l\'animation';
+    btnAnimate.classList.add('playing');
+    animTimer = setInterval(() => {
+      currentSlot = (currentSlot + 1) % 96;
+      setSlider(currentSlot);
+      updateHeatmap();
+    }, 200);
+  }
+});
+
+/* ── Data loading ──────────────────────────────────────────────────────── */
+fetch('data.json')
+  .then(r => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  })
+  .then(data => {
+    appData = data;
+    document.getElementById('loading').style.display = 'none';
+    setSlider(currentSlot);
+    updateHeatmap();
+  })
+  .catch(err => {
+    document.getElementById('loading-text').textContent =
+      '❌ Impossible de charger data.json — ' + err.message;
+    console.error(err);
+  });
+</script>
+</body>
+</html>
