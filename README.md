@@ -1,6 +1,10 @@
 # 🚲 Vélib' Pulse
 
+![Vélib' Pulse banner](https://placehold.co/900x180/0f172a/22d3ee?text=V%C3%A9lib%27+Pulse+%F0%9F%9A%B2)
+
 Vélib' Pulse est une app statique qui affiche une heatmap de disponibilité des stations Vélib' (mécaniques, électriques, places libres) selon le jour et l'heure.
+
+App déployée : [Vélib' Pulse](https://velib-pulse.vercel.app/)
 
 ## Structure rapide
 
