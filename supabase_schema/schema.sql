@@ -130,25 +130,24 @@ RETURNS void LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE
-    s JSONB;
 BEGIN
-    FOR s IN SELECT * FROM jsonb_array_elements(snapshots)
-    LOOP
-        INSERT INTO aggregated_availability
-               (station_id, dow, slot_min, sum_mechanical, sum_ebike, sum_docks, sample_count)
-        VALUES ((s->>'station_id')::BIGINT,
-                (s->>'dow')::SMALLINT,
-                (s->>'slot_min')::SMALLINT,
-                (s->>'meca')::INT,
-                (s->>'ebike')::INT,
-                (s->>'docks')::INT,
-                1)
-        ON CONFLICT (station_id, dow, slot_min) DO UPDATE SET
-            sum_mechanical = aggregated_availability.sum_mechanical + EXCLUDED.sum_mechanical,
-            sum_ebike      = aggregated_availability.sum_ebike      + EXCLUDED.sum_ebike,
-            sum_docks      = aggregated_availability.sum_docks      + EXCLUDED.sum_docks,
-            sample_count   = aggregated_availability.sample_count   + 1;
-    END LOOP;
+  INSERT INTO aggregated_availability
+       (station_id, dow, slot_min, sum_mechanical, sum_ebike, sum_docks, sample_count)
+  SELECT
+    station_id,
+    dow,
+    slot_min,
+    SUM(COALESCE(meca, 0))::BIGINT,
+    SUM(COALESCE(ebike, 0))::BIGINT,
+    SUM(COALESCE(docks, 0))::BIGINT,
+    COUNT(*)::BIGINT
+  FROM jsonb_to_recordset(snapshots)
+     AS s(station_id BIGINT, dow SMALLINT, slot_min SMALLINT, meca INT, ebike INT, docks INT)
+  GROUP BY station_id, dow, slot_min
+  ON CONFLICT (station_id, dow, slot_min) DO UPDATE SET
+    sum_mechanical = aggregated_availability.sum_mechanical + EXCLUDED.sum_mechanical,
+    sum_ebike      = aggregated_availability.sum_ebike      + EXCLUDED.sum_ebike,
+    sum_docks      = aggregated_availability.sum_docks      + EXCLUDED.sum_docks,
+    sample_count   = aggregated_availability.sample_count   + EXCLUDED.sample_count;
 END;
 $$;

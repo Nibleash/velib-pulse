@@ -308,7 +308,7 @@ function updateHeatmap() {
     return;
   }
 
-    const points = [];
+  const points = [];
   let total = 0, active = 0, maxVal = 0;
 
   appData.stations.forEach((s, i) => {
@@ -326,6 +326,7 @@ function updateHeatmap() {
   // Échelle fixe et uniforme : le seuil "bonne dispo" correspond à l'intensité max
   const fixedMax = METRIC_MAX[currentMetric];
   const opts = { radius: 28, blur: 22, maxZoom: 17, max: fixedMax, minOpacity: 0.5, gradient: HEAT_GRADIENT };
+  if (!heatLayer) {
     heatLayer = L.heatLayer(points, opts).addTo(map);
   } else {
     heatLayer.setLatLngs(points);
@@ -408,6 +409,9 @@ fetch('data.json')
     return r.json();
   })
   .then(data => {
+    if (!data || !Array.isArray(data.stations) || typeof data.data !== 'object' || data.data === null) {
+      throw new Error('format inattendu');
+    }
     appData = data;
     document.getElementById('loading').style.display = 'none';
     setSlider(currentSlot);
