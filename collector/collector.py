@@ -1,10 +1,10 @@
-"""Velib-Pulse collector v2 — agrégation incrémentale (quota borné).
+"""Velib-Pulse collector — agrégation incrémentale (quota borné).
 
-Changement clé par rapport à v1 :
-  - Plus de table station_snapshots (illimitée).
-  - On UPSERT directement les sommes dans aggregated_availability via RPC.
-  - Le stockage est borné à ~1 M lignes quelles que soient la durée de collecte.
+Au lieu de stocker des snapshots bruts, on UPSERT directement les sommes
+dans aggregated_availability via RPC. Le stockage est borné à ~1 M lignes
+quelles que soit la durée de collecte.
 """
+import json
 import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -35,7 +35,8 @@ def upsert_station_info(stations: list[dict]) -> None:
         }
         for s in stations
     ]
-    supabase.table("station_information").upsert(rows).execute()
+    # Passe par la RPC SECURITY DEFINER pour contourner RLS
+    supabase.rpc("upsert_station_information", {"stations": json.dumps(rows)}).execute()
 
 
 def upsert_aggregated(statuses: list[dict], captured_at: datetime) -> None:
@@ -57,8 +58,7 @@ def upsert_aggregated(statuses: list[dict], captured_at: datetime) -> None:
         if s.get("is_installed") and s.get("is_renting")
     ]
 
-    # Envoi en batch via la fonction RPC définie dans schema_v2.sql
-    import json
+    # Envoi en batch via la fonction RPC définie dans schema.sql
     supabase.rpc("upsert_aggregated_availability", {"snapshots": json.dumps(rows)}).execute()
 
 

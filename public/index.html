@@ -254,6 +254,10 @@
 /* ── Constants ─────────────────────────────────────────────────────────── */
 const SLOTS       = Array.from({ length: 96 }, (_, i) => i * 15); // 0..1425
 const METRIC_UNIT = ['vélos mécaniques', 'vélos électriques', 'places libres'];
+// Seuil "bonne disponibilité" par métrique : au-delà = vert vif
+// 0=mécanique, 1=électrique, 2=places
+const METRIC_MAX = [6, 6, 5];
+
 // Gradient : faible valeur = rouge, forte valeur = vert vif
 const HEAT_GRADIENT = { 0.0: '#dc2626', 0.25: '#f97316', 0.5: '#eab308', 0.75: '#4ade80', 1.0: '#16a34a' };
 
@@ -304,7 +308,7 @@ function updateHeatmap() {
     return;
   }
 
-  const points = [];
+    const points = [];
   let total = 0, active = 0, maxVal = 0;
 
   appData.stations.forEach((s, i) => {
@@ -319,7 +323,9 @@ function updateHeatmap() {
     }
   });
 
-    const opts = { radius: 28, blur: 22, maxZoom: 17, max: maxVal || 1, minOpacity: 0.5, gradient: HEAT_GRADIENT };  if (!heatLayer) {
+  // Échelle fixe et uniforme : le seuil "bonne dispo" correspond à l'intensité max
+  const fixedMax = METRIC_MAX[currentMetric];
+  const opts = { radius: 28, blur: 22, maxZoom: 17, max: fixedMax, minOpacity: 0.5, gradient: HEAT_GRADIENT };
     heatLayer = L.heatLayer(points, opts).addTo(map);
   } else {
     heatLayer.setLatLngs(points);
@@ -329,7 +335,7 @@ function updateHeatmap() {
   document.getElementById('stat-total').textContent    = total.toLocaleString('fr-FR');
   document.getElementById('stat-stations').textContent = active.toLocaleString('fr-FR');
   document.getElementById('stat-total-lbl').textContent = METRIC_UNIT[currentMetric] + ' tot.';
-  document.getElementById('legend-max').textContent    = maxVal;
+  document.getElementById('legend-max').textContent    = fixedMax + '+ (≥ seuil)';
   document.getElementById('legend-unit').textContent   = METRIC_UNIT[currentMetric];
 }
 
